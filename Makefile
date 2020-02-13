@@ -23,49 +23,29 @@ endif
 
 all: acceptance
 
-.PHONY: build acceptance build_acceptance_config build_acceptance
-
+.PHONY: pull
 pull:
-	for image in `find -name Dockerfile | xargs grep --no-filename FROM | awk '{print $$2}'`; do docker pull $$image; done
+	for image in `find -name Dockerfile | xargs grep --no-filename ^FROM | awk '{print $$2}'`; do docker pull $$image; done
 
-src:
-	git clone https://github.com/mapserver/mapserver src
+.PHONY: build
+build:
+	docker build --tag=$(DOCKER_IMAGE):$(DOCKER_TAG) --target=runner --build-arg=MAPSERVER_BRANCH=$(MAPSERVER_BRANCH) .
 
-.PHONY: update-src
-update-src: src
-	./checkout_release.sh $(MAPSERVER_BRANCH)
-
-.PHONY: build-builder
-build-builder:
-	docker build --tag $(DOCKER_IMAGE)-builder:$(DOCKER_TAG) builder
-
-.PHONY: build-src
-build-src: build-builder update-src
-	mkdir -p server/build server/target
-	docker run --rm -e UID=$(UID) -e GID=$(GID) --volume $(ROOT)/src:/src --volume $(ROOT)/server/build:/build --volume $(ROOT)/server/target:/usr/local --volume $(HOME)/.ccache:/home/builder/.ccache $(DOCKER_IMAGE)-builder:$(DOCKER_TAG)
-
-.PHONY: run-builder
-run-builder: build-builder update-src
-	mkdir -p server/build server/target
-	docker run -ti --rm -e UID=$(UID) -e GID=$(GID) --volume $(ROOT)/src:/src --volume $(ROOT)/server/build:/build --volume $(ROOT)/server/target:/usr/local --volume $(HOME)/.ccache:/home/builder/.ccache $(DOCKER_IMAGE)-builder:$(DOCKER_TAG) bash
-
-.PHONY: build-server
-build-server: build-src
-	docker build --tag $(DOCKER_IMAGE):$(DOCKER_TAG) server
-
-build: build-server
-
+.PHONY: build_acceptance_config
 build_acceptance_config:
 	docker build --tag=$(DOCKER_IMAGE)_acceptance_config:$(DOCKER_TAG) acceptance_tests/config
 
+.PHONY: build_acceptance
 build_acceptance: build_acceptance_config
 	@echo "Docker version: $(DOCKER_VERSION)"
 	@echo "Docker-compose version: $(DOCKER_COMPOSE_VERSION)"
 	docker build --build-arg DOCKER_VERSION="$(DOCKER_VERSION)" --build-arg DOCKER_COMPOSE_VERSION="$(DOCKER_COMPOSE_VERSION)" -t $(DOCKER_IMAGE)_acceptance:$(DOCKER_TAG) acceptance_tests
 
+.PHONY: acceptance
 acceptance: build_acceptance build
 	mkdir -p acceptance_tests/junitxml && touch acceptance_tests/junitxml/results.xml
 	docker run --rm -e DOCKER_TAG=$(DOCKER_TAG) -v /var/run/docker.sock:/var/run/docker.sock -v $(ROOT)/acceptance_tests/junitxml:/tmp/junitxml $(DOCKER_IMAGE)_acceptance:$(DOCKER_TAG)
 
+.PHONY: clean
 clean:
 	rm -rf acceptance_tests/junitxml/ server/build server/target
